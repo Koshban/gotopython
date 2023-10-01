@@ -1,29 +1,4 @@
-from http import HTTPStatus
-from prometheus_client import Gauge, Counter, REGISTRY, CollectorRegistry, push_to_gateway, Summary
-import builtins
-import flag
-import fmt
-import gzip
-import http.client
-import http.server
-from influxdb import models
-import io
-import json
-import kingpin
-import logging
-from logging import level
-# import net
-import operator
-import os
-# import promhttp
-import re
-import socket
-import string
-# import strings
-import sync
-import threading
-import time
-import json
+
 
 # We use the prometheus_client library to define metrics.
 
@@ -36,15 +11,37 @@ sampleExpiry = 5 * 60
 bindAddress = ":9122"
 exportTimestamp = False
 
-lastPush = Gauge(
+import gzip
+import io
+import json
+import net
+import os
+import prometheus
+import promhttp
+import promlog
+import sort
+import strings
+import sync
+import time
+
+MAX_UDP_PAYLOAD = 64 * 1024
+
+listenAddress = ":9122"
+metricsPath = "/metrics"
+exporterMetricsPath = "/metrics/exporter"
+sampleExpiry = 5 * 60
+bindAddress = ":9122"
+exportTimestamp = False
+
+lastPush = prometheus.Gauge(
     "influxdb_last_push_timestamp_seconds",
     "Unix timestamp of the last received influxdb metrics push in seconds."
 )
-udpParseErrors = Counter(
+udpParseErrors = prometheus.Counter(
     "influxdb_udp_parse_errors_total",
     "Current total udp parse errors."
 )
-influxDbRegistry = REGISTRY
+influxDbRegistry = prometheus.Registry()
 
 class influxDBSample:
     def __init__(self):
@@ -71,9 +68,9 @@ class influxDBCollector:
     def __init__(self, logger):
         self.samples = {}
         self.mu = sync.Mutex()
-        self.ch = influxDBSample
-        self.logger = logger
-        self.conn = None
+        self.ch = chan(influxDBSample)
+        self.logger = log.Logger()
+        self.conn = net.UDPConn()
 
     def serveUdp(self):
         buf = bytearray(MAX_UDP_PAYLOAD)
@@ -93,11 +90,11 @@ class influxDBCollector:
 
     def newInfluxDBCollector(self, logger):
         c = influxDBCollector(logger)
-        c.processSamples()
+        go c.processSamples()
         return c
 
     def influxDBPost(self, w, r):
-        lastPush.Set((time.Now().UnixNano()) / 1e9)
+        lastPush.Set(float64(time.Now().UnixNano()) / 1e9)
         buf = []
         ce = r.Header.Get("Content-Encoding")
         if ce == "gzip":

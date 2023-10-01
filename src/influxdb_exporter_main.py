@@ -7,25 +7,15 @@ import time
 import prometheus_client
 from prometheus_client import Gauge, Counter, REGISTRY, CollectorRegistry, push_to_gateway, Summary
 from prometheus_client.utils import INF
-from prometheus_client.core import CollectorRegistry
 import logging
 import kingpin
 import json
 import os
 import fmt
 import http
-# In the Python translation, we use the prometheus_client library 
-# to define metrics. We import the required classes Gauge, Counter, 
-# and REGISTRY from the library. The variable assignments and metric 
-# definitions remain the same as in the Go code.
-MAX_UDP_PAYLOAD = 64 * 1024
+import connections, config
+import doqu
 
-listenAddress = ":9122"
-metricsPath = "/metrics"
-exporterMetricsPath = "/metrics/exporter"
-sampleExpiry = 5 * 60
-bindAddress = ":9122"
-exportTimestamp = False
 
 lastPush = Gauge(
     "influxdb_last_push_timestamp_seconds",
@@ -36,11 +26,11 @@ udpParseErrors = Counter(
     "Current total udp parse errors."
 )
 influxDbRegistry = REGISTRY
-# In Python, we define classes InfluxDBSample, InfluxV2Health, and ErrorResponse to represent the corresponding Go structs. Each class has an __init__ method that initializes the class attributes to their default values.
-# Please note that the Python translation assumes you have the time module imported for working with timestamps. Feel free to modify the class attributes and add additional methods as per your specific requirements.
 
+""" We use the prometheus_client library to define metrics """
 class InfluxDBSample:
-    def __init__(self):
+    """Represents a sample from InfluxDB."""
+    def __init__(self, name, timestamp, value, labels):
         self.ID = ""
         self.Name = ""
         self.Labels = {}
@@ -48,6 +38,7 @@ class InfluxDBSample:
         self.Timestamp = time.time()
 
 class InfluxV2Health:
+    """Represents health information for InfluxDB v2."""
     def __init__(self):
         self.Checks = []
         self.Commit = ""
@@ -57,24 +48,30 @@ class InfluxV2Health:
         self.Version = ""
 
 class ErrorResponse:
+    """Represents an error response."""
     def __init__(self):
         self.Error = ""
 
 class InfluxDBCollector:
+    """Collector for InfluxDB metrics."""
     def __init__(self, logger):
         self.samples = {}
         self.mu = threading.Lock()
+        # self.mu = threading.sync.Mutex()
         self.ch = []
         self.logger = logger
         self.conn = None
+        # self.conn = connections.UDPConn()
 
     @classmethod
     def new_influxdb_collector(cls, logger):
+        """Create a new InfluxDBCollector instance."""
         c = cls(logger)
         threading.Thread(target=c.process_samples).start()
         return c
 
     def influxdb_post(self, w, r):
+        """Handle the InfluxDB metrics POST request."""
         lastPush.set(float(time.time()))
 
         buf = []
@@ -90,7 +87,7 @@ class InfluxDBCollector:
             precision = r.form.get("precision")
 
         try:
-            points = models.parse_points_with_precision(buf, time.time(), precision)
+            points =  doqu. parse_points_with_precision(buf, time.time(), precision)
         except Exception as e:
             json_error_response(w, f"error parsing request: {e}", 400)
             return
@@ -101,6 +98,7 @@ class InfluxDBCollector:
         w.send_response()
 
     def parse_points_to_sample(self, points):
+        """Parse InfluxDB points and convert them to samples."""
         for s in points:
             fields = s.fields()
             for field, v in fields.items():
@@ -139,6 +137,7 @@ class InfluxDBCollector:
                 self.ch.put(sample)
 
     def process_samples(self):
+        """Process collected samples."""
         ticker = threading.Event()
         while True:
             if ticker.wait(60):
@@ -147,6 +146,7 @@ class InfluxDBCollector:
                     self.samples = {k: v for k, v in self.samples.items() if v.timestamp >= age_limit}
 
     def collect(self):
+        """Collect metrics."""
         yield lastPush
 
         with self.mu:
@@ -172,9 +172,11 @@ class InfluxDBCollector:
             yield metric
 
     def describe(self):
+        """Describe the metrics."""
         yield lastPush
 
 def replace_invalid_chars(s):
+    """Replace invalid characters in a string."""
     for i, char in enumerate(s):
         char_int = ord(char)
         if not (97 <= char_int <= 122 or 65 <= char_int <= 90 or 48 <= char_int <= 57 or char_int == 95):
@@ -186,27 +188,24 @@ def replace_invalid_chars(s):
     return s
 
 def json_error_response(w, err, code):
+    """Send a JSON error response."""
     w.headers["Content-Type"] = "application/json; charset=utf-8"
     w.headers["X-Content-Type-Options"] = "nosniff"
     w.status = code
     w.write(json.dumps({"Error": err}))
 
-class influxDBSample:
-    def __init__(self, name, timestamp, value, labels):
-        self.name = name
-        self.timestamp = timestamp
-        self.value = value
-        self.labels = labels
-        self.id = ""
-
 def init():
+    """Initialize the InfluxDB exporter."""
     influxDbRegistry = CollectorRegistry()
-    influxDbRegistry.register(prometheus_client.Collector(version.NewCollector("influxdb_exporter")))
+    influxDbRegistry.register(prometheus_client.Collector(NewCollector("influxdb_exporter")))
     influxDbRegistry.register(udpParseErrors)
     # influxDbRegistry.MustRegister(version.NewCollector("influxdb_exporter"))
     # influxDbRegistry.MustRegister(udpParseErrors)
 
 def main():
+    """Main function for the InfluxDB exporter."""
+    """ Entry point for the influxDB exporter. It initializes configurations, sets up logging, creates the influxDB collector. Registers it.
+    sets up UDP listener, and configures various end points. Finally, it starts the HTTP server and logs any errors"""
     promlogConfig = promlog.Config()
     kingpin.CommandLine().add_flags(promlogConfig)
     kingpin.HelpFlag().short('h')
@@ -233,25 +232,29 @@ def main():
     http.HandleFunc("/api/v2/write", c.influxdb_post)
 
     def query_handler(w, r):
+        """Handler for the /query endpoint."""
         w.write('{"results": []}')
     http.HandleFunc("/query", query_handler)
 
     def api_query_handler(w, r):
+        """Handler for the /api/v2/query endpoint."""
         w.write('')
     http.HandleFunc("/api/v2/query", api_query_handler)
 
     def ping_handler(w, r):
+        """Handler for the /ping endpoint."""
         verbose = r.URL.Query().Get("verbose")
 
         if verbose != "" and verbose != "0" and verbose != "false":
-            b, _ := json.Marshal(map[string]string{"version": version.Version})
+            b, _ = json.dumps.get("version")
             w.Write(b)
         else:
-            w.Header().Set("X-Influxdb-Version", version.Version)
+            w.Header().Set("X-Influxdb-Version", config.Influxdb_Version)
             w.WriteHeader(http.StatusNoContent)
     http.HandleFunc("/ping", ping_handler)
 
     def health_handler(w, r):
+        """Handler for the /health endpoint."""
         health = {
             "Checks": [],
             "Version": version.Version,
@@ -266,7 +269,9 @@ def main():
     http.Handle(exporterMetricsPath, promhttp.Handler())
 
     def default_handler(w, r):
-        w.Write([]byte('<html>\n<head><title>InfluxDB Exporter</title></head>\n<body>\n<h1>InfluxDB Exporter</h1>\n<p><a href="' + metricsPath + '">Metrics</a></p>\n<p><a href="' + exporterMetricsPath + '">Exporter Metrics</a></p>\n</body>\n</html>'))
+        """Default handler for other endpoints."""
+        w.Write([]byte('<html>\n<head><title>InfluxDB Exporter</title></head>\n<body>\n<h1>InfluxDB Exporter</h1>\n<p><a href="' \
+                       + metricsPath + '">Metrics</a></p>\n<p><a href="' + exporterMetricsPath + '">Exporter Metrics</a></p>\n</body>\n</html>'))
     http.HandleFunc("/", default_handler)
 
     try:

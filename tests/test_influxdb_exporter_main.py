@@ -6,14 +6,19 @@ from unittest.mock import MagicMock, patch
 from http import HTTPStatus
 from influxdb_exporter_main import InfluxDBCollector, influxDBSample, replace_invalid_chars
 
-
 @pytest.fixture
 def influxdb_collector():
+    """
+    Fixture that creates an instance of InfluxDBCollector for testing.
+    """
     logger_mock = MagicMock()
     return InfluxDBCollector.new_influxdb_collector(logger_mock)
 
 
 def test_influxdb_post_success(influxdb_collector):
+    """
+    Test case for successful InfluxDB POST request handling.
+    """
     # Mock the necessary objects for the test
     request_mock = MagicMock()
     request_mock.headers.get.return_value = None
@@ -31,6 +36,9 @@ def test_influxdb_post_success(influxdb_collector):
 
 
 def test_influxdb_post_invalid_request(influxdb_collector):
+    """
+    Test case for handling invalid InfluxDB POST request.
+    """
     # Mock the necessary objects for the test
     request_mock = MagicMock()
     request_mock.headers.get.return_value = None
@@ -48,6 +56,9 @@ def test_influxdb_post_invalid_request(influxdb_collector):
 
 
 def test_parse_points_to_sample(influxdb_collector):
+    """
+    Test case for parsing InfluxDB points to samples.
+    """
     # Mock the necessary objects for the test
     point_mock = MagicMock()
     point_mock.name = 'metric_name'
@@ -66,6 +77,9 @@ def test_parse_points_to_sample(influxdb_collector):
 
 
 def test_replace_invalid_chars():
+    """
+    Test case for replacing invalid characters in metric names.
+    """
     assert replace_invalid_chars("metric_name") == "metric_name"
     assert replace_invalid_chars("metric_name_1") == "metric_name_1"
     assert replace_invalid_chars("metric name") == "metric_name"

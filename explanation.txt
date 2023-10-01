@@ -1,0 +1,32 @@
+Query = 
+Build Python Code that can pull data from influxDB using sample select queries and frequency of execution and produces output in JSON format. The frequency is configurable for each query. E.g. Sample Query ="select '95tile' from measurements.gilgo" , execution Frequency every 15 mins. Then convert that data to Prometheus format so that it can be exported
+
+Explanation = 
+To build Python code that pulls data from InfluxDB using sample select queries, executes them at configurable frequencies, and converts the data to Prometheus format for export, you can use the influxdb and prometheus_client libraries. Here's an example that demonstrates how to achieve this
+In the code above, make sure to replace 'localhost', 8086, 'your_username', 'your_password', 'your_database', and the sample queries with your actual InfluxDB connection details and queries.
+
+The code connects to InfluxDB using the provided credentials. It defines a dictionary queries where each query is associated with its execution frequency. Prometheus metrics, represented as Gauge objects, are created for each query.
+
+The execute_query() function executes a query and updates the corresponding Prometheus metric with the retrieved value. It retrieves data points from the query result and sets the metric value accordingly.
+
+The execute_queries() function iterates over the queries dictionary, executes each query, and updates the respective Prometheus metric.
+
+The Prometheus HTTP server is started on port 8000 using start_http_server(8000).
+
+Finally, an infinite loop periodically executes the queries using execute_queries() and sleeps for 1 second between iterations.
+
+
+
+In the code above, make sure to replace 'localhost', 8086, 'your_username', 'your_password', 'your_database', the sample queries, and the Prometheus Pushgateway URL with your actual InfluxDB connection details, queries, and Pushgateway URL.
+
+The code connects to InfluxDB using the provided credentials. It defines a dictionary queries where each query is associated with its execution frequency.
+
+The execute_query() function executes a query, retrieves the data points, and converts the result to Prometheus format (e.g., 'my_metric value').
+
+The push_to_prometheus() function takes a list of metrics in Prometheus format and sends them to the Prometheus Pushgateway using a POST request.
+
+The execute_queries() function iterates over the queries dictionary, executes each query, and collects the metrics in a list. If there are metrics available, it calls push_to_prometheus() to post the metrics to the Pushgateway.
+
+The infinite loop periodically executes the queries using execute_queries() and sleeps for 1 second between iterations.
+
+This code pulls data from InfluxDB, converts it to Prometheus format, and POSTs it to the Prometheus Pushgateway. You can customize the queries, execution frequencies, and further enhance the code based on your specific requirements.
